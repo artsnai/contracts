@@ -17,8 +17,8 @@ The Aerodrome LP Manager allows users to:
 
 ### Contracts
 
-- `UserLPManagerFactory`: Contract that creates personalized `UserLPManager` instances
-- `UserLPManager`: Contract that manages a user's LP positions, staking, and rewards
+- `UserLPManagerFactory` (LPFactory.sol): Contract that creates personalized `UserLPManager` instances
+- `UserLPManager` (ManageLP.sol): Contract that manages a user's LP positions, staking, and rewards
 
 ### Utility Scripts
 
@@ -26,6 +26,7 @@ All utility scripts are in the `utils` folder:
 
 - `helpers.js`: Network configurations and common utility functions
 - `create-manager.js`: Creates or finds an existing LP manager for your wallet
+- `deposit-tokens.js`: Deposits tokens into your manager contract
 - `add-liquidity.js`: Adds liquidity to Aerodrome pools
 - `stake-lp.js`: Stakes LP tokens in reward gauges
 - `claim-rewards.js`: Claims rewards from staked positions
@@ -34,28 +35,38 @@ All utility scripts are in the `utils` folder:
 - `check-balances.js`: Checks token balances in wallet and manager
 - `check-lp-positions.js`: Checks LP positions and staked positions
 
+### Scripts
+
+Deployment scripts in the `scripts` folder:
+
+- `deploy.js`: Deploys the `UserLPManagerFactory` contract
+- `deploy-and-add-to-multiple-pools.js`: Deploys the factory, creates a manager, and adds liquidity to multiple pools
+
 ### Tests
 
-Tests are located in the `tests/user-lp-manager` folder:
+Tests are located in the `tests` folder:
 
-- `lifecycle.test.js`: Tests the complete lifecycle of a UserLPManager
-- `rewards.test.js`: Tests reward claiming functionality
-- `balances.test.js`: Tests token balance checking
-- `positions.test.js`: Tests LP position management
+- `lifecycle.test.js`: Tests the complete lifecycle of a UserLPManager, including creation, operations, and clean-up
+- `deposit.test.js`: Tests token deposit functionality 
+- `add-liquidity.test.js`: Tests adding liquidity to Aerodrome pools
+- `stake-lp.test.js`: Tests staking LP tokens in gauges
+- `unstake-lp.test.js`: Tests unstaking LP tokens from gauges
+- `claim-rewards.test.js`: Tests claiming rewards from staked positions
+- `rewards.test.js`: Tests reward calculation and distribution mechanics
+- `balances.test.js`: Tests token balance tracking and reporting
+- `positions.test.js`: Tests LP position management and tracking
 
-## Utility Scripts
+To run all tests:
 
-The project includes several utility scripts to help with managing LP positions:
+```bash
+npx hardhat test
+```
 
-- **utils/create-manager.js**: Creates a new manager contract or finds an existing one for the signer.
-- **utils/deposit-tokens.js**: Deposits one or more tokens into your manager contract.
-- **utils/add-liquidity.js**: Adds liquidity to Aerodrome pools using tokens in your manager.
-- **utils/stake-lp.js**: Stakes LP tokens in Aerodrome gauges to earn rewards.
-- **utils/claim-rewards.js**: Claims rewards from staked LP positions.
-- **utils/remove-liquidity.js**: Removes liquidity from Aerodrome LP positions.
-- **utils/withdraw-tokens.js**: Withdraws tokens from your manager contract.
-- **utils/check-balances.js**: Checks token balances in wallet and manager.
-- **utils/check-lp-positions.js**: Checks LP positions and staked positions.
+To run a specific test file:
+
+```bash
+npx hardhat test tests/lifecycle.test.js
+```
 
 ## Deployment
 
@@ -74,6 +85,12 @@ This script:
 4. Verifies the Aerodrome Router is configured correctly
 5. Returns the factory contract address
 
+You can also deploy and add liquidity to multiple pools in one step:
+
+```bash
+npx hardhat run scripts/deploy-and-add-to-multiple-pools.js --network base
+```
+
 You can also import the deploy function in other scripts:
 
 ```javascript
@@ -88,8 +105,7 @@ const { factory } = await deploy();
 Set up your .env file with the following variables:
 
 ```
-LP_MANAGER_FACTORY=0x...
-LP_MANAGER_ADDRESS=0x...
+LP_MANAGER_FACTORY=0xe7c15dF3929f4CF32e57749C94fB018521a0C765
 PRIVATE_KEY=your_private_key_here
 RPC_URL=your_rpc_url_here
 ```
@@ -99,61 +115,72 @@ If these are set, the utilities will use them instead of deploying new contracts
 ### Creating a Manager
 
 ```bash
-npx hardhat run scripts/create-manager.js --network base
+npx hardhat run utils/create-manager.js --network base
 ```
 
 ### Depositing Tokens
 
 ```bash
-# Example: Deposit 100 USDC and 0.01 WETH to manager
-npx hardhat run scripts/deposit-tokens-example.js --network base
+# Deposit tokens to manager
+npx hardhat run utils/deposit-tokens.js --network base
 ```
 
 ### Adding Liquidity
 
 ```bash
-# Example: Add liquidity to USDC-AERO pool
-npx hardhat run scripts/add-liquidity-example.js --network base
+# Add liquidity to Aerodrome pools
+npx hardhat run utils/add-liquidity.js --network base
 ```
 
 ### Staking LP Tokens
 
 ```bash
-# Example: Stake LP tokens in a gauge to earn rewards
-npx hardhat run scripts/stake-lp-example.js --network base
+# Stake LP tokens in a gauge to earn rewards
+npx hardhat run utils/stake-lp.js --network base
 ```
 
 ### Claiming Rewards
 
 ```bash
-# Example: Claim rewards from staked LP positions
-npx hardhat run scripts/claim-rewards-example.js --network base
+# Claim rewards from staked LP positions
+npx hardhat run utils/claim-rewards.js --network base
 ```
 
 ### Removing Liquidity
 
 ```bash
-# Example: Remove liquidity from an LP position
-npx hardhat run scripts/remove-liquidity-example.js --network base
+# Remove liquidity from an LP position
+npx hardhat run utils/remove-liquidity.js --network base
 ```
 
 ### Withdrawing Tokens
 
 ```bash
-# Example: Withdraw tokens from manager
-npx hardhat run scripts/withdraw-tokens-example.js --network base
+# Withdraw tokens from manager
+npx hardhat run utils/withdraw-tokens.js --network base
+```
+
+### Checking Balances and Positions
+
+```bash
+# Check token balances
+npx hardhat run utils/check-balances.js --network base
+
+# Check LP positions
+npx hardhat run utils/check-lp-positions.js --network base
 ```
 
 ### Running Tests
 
 ```bash
-npx hardhat test --network base
+npx hardhat test
 ```
 
 ## Key Features
 
-- **Automatic Manager Detection**: Utilities automatically check for an existing manager contract before creating a new one.
+- **Multiple Manager Support**: Create and manage multiple LP manager contracts.
+- **Automatic Manager Detection**: Utilities automatically check for existing manager contracts.
 - **Error Handling**: Comprehensive error handling and validation throughout the utilities.
 - **Structured Results**: Each utility returns structured objects with detailed information about the operation.
 - **Flexible Token Management**: Deposit and withdraw multiple tokens in a single operation.
-- **Detailed Logging**: Optional logging provides clear information about each step of the process.
+- **Detailed Position Tracking**: View comprehensive information about LP positions and staked positions.
