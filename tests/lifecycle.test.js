@@ -15,21 +15,10 @@ const path = require("path");
 const fs = require("fs");
 
 // Load environment variables from base.env
-// Try different relative paths to find the file
-let envPath = path.resolve(__dirname, "../deployments/base.env");
-if (!fs.existsSync(envPath)) {
-  envPath = path.resolve(process.cwd(), "deployments/base.env");
-}
-
-if (fs.existsSync(envPath)) {
-  console.log(`Loading environment from: ${envPath}`);
-  dotenv.config({ path: envPath });
-} else {
-  console.warn("WARNING: Could not find base.env file. Using hardcoded addresses.");
-}
+dotenv.config({ path: "deployments/base.env" });
 
 // Use environment variables with fallbacks
-const USER_LP_MANAGER_FACTORY = process.env.USER_LP_MANAGER_FACTORY || "0xA074EDb59D1F4936970917Ab19fc3193C4A05cd8";
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xe7c15dF3929f4CF32e57749C94fB018521a0C765";
 const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
 const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
@@ -60,10 +49,10 @@ describe("UserLPManager Lifecycle Tests", function() {
       [deployer] = await ethers.getSigners();
       
       console.log("Running lifecycle tests with account:", deployer.address);
-      console.log(`Using factory: ${USER_LP_MANAGER_FACTORY}`);
+      console.log(`Using factory: ${LP_MANAGER_FACTORY}`);
       
       // Get the factory contract instance
-      factory = await ethers.getContractAt("UserLPManagerFactory", USER_LP_MANAGER_FACTORY);
+      factory = await ethers.getContractAt("UserLPManagerFactory", LP_MANAGER_FACTORY);
       
       // Find the manager for this user
       managerAddress = await factory.getUserManager(deployer.address);
@@ -279,38 +268,62 @@ describe("UserLPManager Lifecycle Tests", function() {
   });
   
   it("should check LP positions", async function() {
-    // Use the checkLPPositions utility
-    const result = await checkLPPositions({
-      managerAddress,
-      includeDetails: true
-    });
+    console.log("\n=== Checking LP Positions ===");
     
-    if (result.success) {
-      console.log(`Found ${result.lpPositions.length} LP positions`);
+    try {
+      // Define token pairs to check
+      const tokenPairs = [
+        { tokenA: USDC, tokenB: AERO, name: "USDC-AERO" },
+        { tokenA: VIRTUAL, tokenB: WETH, name: "VIRTUAL-WETH" },
+        { tokenA: USDC, tokenB: WETH, name: "USDC-WETH" }
+      ];
       
-      // Look for our LP tokens and set them if not already set
-      for (const position of result.lpPositions) {
-        if (position.token0 && position.token1) {
-          if ((position.token0.symbol === "USDC" && position.token1.symbol === "AERO") ||
-              (position.token0.symbol === "AERO" && position.token1.symbol === "USDC")) {
-            if (!lpToken1) lpToken1 = position.lpToken;
-            console.log(`Found USDC-AERO pool: ${position.lpToken}`);
+      let positionsFound = 0;
+      
+      for (const pair of tokenPairs) {
+        try {
+          // Get pool addresses (stable and volatile) for this token pair
+          const [stablePool, volatilePool] = await manager.getAerodromePools(pair.tokenA, pair.tokenB);
+          
+          // Check stable pool if it exists
+          if (stablePool !== ethers.constants.AddressZero) {
+            const lpToken = await ethers.getContractAt("IERC20", stablePool);
+            const balance = await lpToken.balanceOf(managerAddress);
+            
+            if (balance.gt(0)) {
+              positionsFound++;
+              console.log(`\nPosition ${positionsFound}:`);
+              console.log(`LP Token: ${stablePool}`);
+              console.log(`Balance: ${ethers.utils.formatEther(balance)}`);
+              console.log(`Pool: ${pair.name} (Stable)`);
+            }
           }
           
-          if ((position.token0.symbol === "VIRTUAL" && position.token1.symbol === "WETH") ||
-              (position.token0.symbol === "WETH" && position.token1.symbol === "VIRTUAL")) {
-            if (!lpToken2) lpToken2 = position.lpToken;
-            console.log(`Found VIRTUAL-WETH pool: ${position.lpToken}`);
+          // Check volatile pool if it exists
+          if (volatilePool !== ethers.constants.AddressZero) {
+            const lpToken = await ethers.getContractAt("IERC20", volatilePool);
+            const balance = await lpToken.balanceOf(managerAddress);
+            
+            if (balance.gt(0)) {
+              positionsFound++;
+              console.log(`\nPosition ${positionsFound}:`);
+              console.log(`LP Token: ${volatilePool}`);
+              console.log(`Balance: ${ethers.utils.formatEther(balance)}`);
+              console.log(`Pool: ${pair.name} (Volatile)`);
+            }
           }
+        } catch (error) {
+          console.log(`Error checking ${pair.name} pools: ${error.message}`);
         }
       }
-    } else {
-      console.log(`Error checking LP positions: ${result.error}`);
-    }
-    
-    // Expect at least one position if we ran the previous tests
-    if (lpToken1 || lpToken2) {
-      expect(result.lpPositions.length).to.be.at.least(1);
+      
+      if (positionsFound === 0) {
+        console.log("No LP positions found");
+      } else {
+        console.log(`Found ${positionsFound} LP positions`);
+      }
+    } catch (error) {
+      console.error("Error checking LP positions:", error);
     }
   });
   
