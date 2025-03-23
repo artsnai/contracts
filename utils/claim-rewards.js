@@ -150,42 +150,108 @@ async function claimRewards(managerAddress, lpTokenAddress) {
     console.log("\nClaiming rewards for all staked positions...");
     
     try {
-      // Get all staked positions
-      const positions = await manager.getPositions();
-      console.log(`Found ${positions.length} total positions`);
+      // We can't use getPositions since it doesn't exist
+      // Instead, let's check common pairs directly using the token contract manager
+      console.log("Finding staked positions...");
+      
+      // Define common token pairs to check
+      const dotenv = require("dotenv");
+      dotenv.config({ path: "deployments/base.env" });
+      
+      // Use environment variables with fallbacks for common tokens
+      const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+      const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
+      const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
+      const VIRTUAL = process.env.VIRTUAL || "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b";
+      
+      // Build list of common pairs to check
+      const pairs = [
+        { tokens: [USDC, WETH], name: "USDC-WETH" },
+        { tokens: [USDC, AERO], name: "USDC-AERO" },
+        { tokens: [USDC, VIRTUAL], name: "USDC-VIRTUAL" },
+        { tokens: [WETH, AERO], name: "WETH-AERO" },
+        { tokens: [WETH, VIRTUAL], name: "WETH-VIRTUAL" },
+        { tokens: [AERO, VIRTUAL], name: "AERO-VIRTUAL" }
+      ];
       
       let stakedPositions = [];
+      let positionCount = 0;
       
-      // Find positions that have staked balances
-      for (let i = 0; i < positions.length; i++) {
-        const lpToken = positions[i].tokenAddress;
-        const gauge = await manager.getGaugeForPool(lpToken);
-        
-        if (gauge !== ethers.constants.AddressZero) {
-          // Check staked balance
-          const stakedBalance = await manager.getGaugeBalance(lpToken);
+      // Check all common pairs for stable and volatile pools
+      for (const pair of pairs) {
+        try {
+          // Get both stable and volatile pools for this pair
+          const [stablePool, volatilePool] = await manager.getAerodromePools(pair.tokens[0], pair.tokens[1]);
           
-          if (stakedBalance.gt(0)) {
-            stakedPositions.push({
-              index: i,
-              lpToken,
-              gauge,
-              stakedBalance
-            });
+          // Check stable pool
+          if (stablePool !== ethers.constants.AddressZero) {
+            const gauge = await manager.getGaugeForPool(stablePool);
             
-            console.log(`\nPosition ${i+1}:`);
-            console.log(`LP Token: ${lpToken}`);
-            console.log(`Gauge: ${gauge}`);
-            console.log(`Staked Balance: ${ethers.utils.formatEther(stakedBalance)}`);
-            
-            // Check earned rewards
-            try {
-              const earnedRewards = await manager.getEarnedRewards(lpToken);
-              console.log(`Earned Rewards: ${ethers.utils.formatEther(earnedRewards)}`);
-            } catch (error) {
-              console.log(`Error checking rewards: ${error.message}`);
+            if (gauge !== ethers.constants.AddressZero) {
+              const stakedBalance = await manager.getGaugeBalance(stablePool);
+              
+              if (stakedBalance.gt(0)) {
+                positionCount++;
+                stakedPositions.push({
+                  index: positionCount,
+                  lpToken: stablePool,
+                  gauge,
+                  stakedBalance,
+                  pairName: `${pair.name} (Stable)`
+                });
+                
+                console.log(`\nPosition ${positionCount}:`);
+                console.log(`LP Token: ${stablePool}`);
+                console.log(`Gauge: ${gauge}`);
+                console.log(`Pool: ${pair.name} (Stable)`);
+                console.log(`Staked Balance: ${ethers.utils.formatEther(stakedBalance)}`);
+                
+                // Check earned rewards
+                try {
+                  const earnedRewards = await manager.getEarnedRewards(stablePool);
+                  console.log(`Earned Rewards: ${ethers.utils.formatEther(earnedRewards)}`);
+                } catch (error) {
+                  console.log(`Error checking rewards: ${error.message}`);
+                }
+              }
             }
           }
+          
+          // Check volatile pool
+          if (volatilePool !== ethers.constants.AddressZero) {
+            const gauge = await manager.getGaugeForPool(volatilePool);
+            
+            if (gauge !== ethers.constants.AddressZero) {
+              const stakedBalance = await manager.getGaugeBalance(volatilePool);
+              
+              if (stakedBalance.gt(0)) {
+                positionCount++;
+                stakedPositions.push({
+                  index: positionCount,
+                  lpToken: volatilePool,
+                  gauge,
+                  stakedBalance,
+                  pairName: `${pair.name} (Volatile)`
+                });
+                
+                console.log(`\nPosition ${positionCount}:`);
+                console.log(`LP Token: ${volatilePool}`);
+                console.log(`Gauge: ${gauge}`);
+                console.log(`Pool: ${pair.name} (Volatile)`);
+                console.log(`Staked Balance: ${ethers.utils.formatEther(stakedBalance)}`);
+                
+                // Check earned rewards
+                try {
+                  const earnedRewards = await manager.getEarnedRewards(volatilePool);
+                  console.log(`Earned Rewards: ${ethers.utils.formatEther(earnedRewards)}`);
+                } catch (error) {
+                  console.log(`Error checking rewards: ${error.message}`);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.log(`Error checking ${pair.name} pools: ${error.message}`);
         }
       }
       
@@ -193,6 +259,8 @@ async function claimRewards(managerAddress, lpTokenAddress) {
         console.log("No staked positions found. Nothing to claim.");
         return claimResults;
       }
+      
+      console.log(`\nFound ${stakedPositions.length} staked positions.`);
       
       // Claim rewards for each staked position
       for (const position of stakedPositions) {

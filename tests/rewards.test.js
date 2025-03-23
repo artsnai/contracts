@@ -1,28 +1,16 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { getNetworkConfig } = require("../utils/helpers");
-const { deploy } = require("../scripts/deploy");
 const { claimRewards } = require("../utils/claim-rewards");
 const dotenv = require("dotenv");
 const path = require("path");
 const fs = require("fs");
 
 // Load environment variables from base.env
-// Try different relative paths to find the file
-let envPath = path.resolve(__dirname, "../deployments/base.env");
-if (!fs.existsSync(envPath)) {
-  envPath = path.resolve(process.cwd(), "deployments/base.env");
-}
-
-if (fs.existsSync(envPath)) {
-  console.log(`Loading environment from: ${envPath}`);
-  dotenv.config({ path: envPath });
-} else {
-  console.warn("WARNING: Could not find base.env file. Using hardcoded addresses.");
-}
+dotenv.config({ path: "deployments/base.env" });
 
 // Use environment variables with fallbacks
-const USER_LP_MANAGER_FACTORY = process.env.USER_LP_MANAGER_FACTORY || "0xA074EDb59D1F4936970917Ab19fc3193C4A05cd8";
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xF5488216EC9aAC50CD739294C9961884190caBe3";
 const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
 const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
@@ -53,10 +41,10 @@ describe("UserLPManager Rewards Tests", function() {
       [deployer] = await ethers.getSigners();
       
       console.log("Running rewards tests with account:", deployer.address);
-      console.log(`Using factory: ${USER_LP_MANAGER_FACTORY}`);
+      console.log(`Using factory: ${LP_MANAGER_FACTORY}`);
       
       // Get the factory contract instance
-      factory = await ethers.getContractAt("UserLPManagerFactory", USER_LP_MANAGER_FACTORY);
+      factory = await ethers.getContractAt("UserLPManagerFactory", LP_MANAGER_FACTORY);
       
       // Find the manager for this user
       managerAddress = await factory.getUserManager(deployer.address);
@@ -381,6 +369,150 @@ describe("UserLPManager Rewards Tests", function() {
       } catch (error) {
         console.log(`Error checking balance for ${tokenAddress}: ${error.message}`);
       }
+    }
+  });
+
+  it("should check staked positions and rewards", async function() {
+    console.log("\n=== Checking Staked Positions and Rewards ===");
+    
+    try {
+      // Define token pairs to check
+      const tokenPairs = [
+        { tokenA: USDC, tokenB: AERO, name: "USDC-AERO" },
+        { tokenA: VIRTUAL, tokenB: WETH, name: "VIRTUAL-WETH" },
+        { tokenA: USDC, tokenB: WETH, name: "USDC-WETH" }
+      ];
+      
+      let stakedPositionsFound = 0;
+      
+      for (const pair of tokenPairs) {
+        try {
+          // Get pool addresses (stable and volatile) for this token pair
+          const [stablePool, volatilePool] = await manager.getAerodromePools(pair.tokenA, pair.tokenB);
+          
+          // Check stable pool if it exists
+          if (stablePool !== ethers.constants.AddressZero) {
+            try {
+              const gauge = await manager.getGaugeForPool(stablePool);
+              
+              if (gauge !== ethers.constants.AddressZero) {
+                const stakedBalance = await manager.getGaugeStakedBalance(stablePool);
+                
+                if (stakedBalance.gt(0)) {
+                  stakedPositionsFound++;
+                  console.log(`\nStaked Position ${stakedPositionsFound}:`);
+                  console.log(`LP Token: ${stablePool}`);
+                  console.log(`Gauge: ${gauge}`);
+                  console.log(`Staked Balance: ${ethers.utils.formatEther(stakedBalance)}`);
+                  console.log(`Pool: ${pair.name} (Stable)`);
+                  
+                  // Check for rewards
+                  try {
+                    const earnedRewards = await manager.getEarnedRewards(stablePool);
+                    console.log(`Earned Rewards: ${ethers.utils.formatEther(earnedRewards)}`);
+                    
+                    // Try to get reward token
+                    try {
+                      const rewardToken = await manager.getRewardToken(stablePool);
+                      console.log(`Reward Token: ${rewardToken}`);
+                      
+                      // Try to get symbol
+                      try {
+                        const rewardContract = await ethers.getContractAt("IERC20", rewardToken);
+                        const symbol = await rewardContract.symbol();
+                        console.log(`Reward Token Symbol: ${symbol}`);
+                      } catch (error) {
+                        console.log(`Could not get reward token symbol: ${error.message}`);
+                      }
+                    } catch (error) {
+                      console.log(`Error getting reward token: ${error.message}`);
+                    }
+                  } catch (error) {
+                    console.log(`Error checking rewards: ${error.message}`);
+                  }
+                }
+              }
+            } catch (error) {
+              console.log(`Error checking gauge for ${pair.name} stable pool: ${error.message}`);
+            }
+          }
+          
+          // Check volatile pool if it exists
+          if (volatilePool !== ethers.constants.AddressZero) {
+            try {
+              const gauge = await manager.getGaugeForPool(volatilePool);
+              
+              if (gauge !== ethers.constants.AddressZero) {
+                const stakedBalance = await manager.getGaugeStakedBalance(volatilePool);
+                
+                if (stakedBalance.gt(0)) {
+                  stakedPositionsFound++;
+                  console.log(`\nStaked Position ${stakedPositionsFound}:`);
+                  console.log(`LP Token: ${volatilePool}`);
+                  console.log(`Gauge: ${gauge}`);
+                  console.log(`Staked Balance: ${ethers.utils.formatEther(stakedBalance)}`);
+                  console.log(`Pool: ${pair.name} (Volatile)`);
+                  
+                  // Check for rewards
+                  try {
+                    const earnedRewards = await manager.getEarnedRewards(volatilePool);
+                    console.log(`Earned Rewards: ${ethers.utils.formatEther(earnedRewards)}`);
+                    
+                    // Try to get reward token
+                    try {
+                      const rewardToken = await manager.getRewardToken(volatilePool);
+                      console.log(`Reward Token: ${rewardToken}`);
+                      
+                      // Try to get symbol
+                      try {
+                        const rewardContract = await ethers.getContractAt("IERC20", rewardToken);
+                        const symbol = await rewardContract.symbol();
+                        console.log(`Reward Token Symbol: ${symbol}`);
+                      } catch (error) {
+                        console.log(`Could not get reward token symbol: ${error.message}`);
+                      }
+                    } catch (error) {
+                      console.log(`Error getting reward token: ${error.message}`);
+                    }
+                  } catch (error) {
+                    console.log(`Error checking rewards: ${error.message}`);
+                  }
+                }
+              }
+            } catch (error) {
+              console.log(`Error checking gauge for ${pair.name} volatile pool: ${error.message}`);
+            }
+          }
+        } catch (error) {
+          console.log(`Error checking ${pair.name} pools: ${error.message}`);
+        }
+      }
+      
+      if (stakedPositionsFound === 0) {
+        console.log("No staked positions found");
+      } else {
+        console.log(`Found ${stakedPositionsFound} staked positions with rewards`);
+      }
+    } catch (error) {
+      console.error("Error checking staked positions and rewards:", error);
+    }
+  });
+
+  it("should check claimable rewards", async function() {
+    console.log("\n=== Checking Claimable Rewards ===");
+    
+    try {
+      // Get total earned rewards across all pools
+      const totalRewards = await manager.getTotalEarnedRewards();
+      console.log(`Total Earned Rewards: ${ethers.utils.formatEther(totalRewards)} AERO`);
+      
+      if (totalRewards.gt(0)) {
+        console.log("Rewards are available to claim");
+      } else {
+        console.log("No rewards are available to claim");
+      }
+    } catch (error) {
+      console.error("Error checking claimable rewards:", error);
     }
   });
 }); 

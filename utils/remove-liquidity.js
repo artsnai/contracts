@@ -72,7 +72,7 @@ async function removeLiquidity({
     }
     
     // Get the LP token instance
-    const lpTokenContract = await ethers.getContractAt("IAerodromePair", lpToken);
+    const lpTokenContract = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", lpToken);
     
     // Get token addresses
     const token0 = await lpTokenContract.token0();

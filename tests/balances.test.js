@@ -8,7 +8,7 @@ const fs = require("fs");
 dotenv.config({ path: "deployments/base.env" });
 
 // Use environment variables with fallbacks
-const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xe7c15dF3929f4CF32e57749C94fB018521a0C765";
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xF5488216EC9aAC50CD739294C9961884190caBe3";
 const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
 const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
@@ -58,6 +58,20 @@ describe("UserLPManager Balance Tests", function() {
       
       // Get manager contract instance
       manager = await ethers.getContractAt("UserLPManager", managerAddress);
+      
+      // Set Aerodrome router and factory if not set
+      const currentRouter = await manager.aerodromeRouter();
+      const currentFactory = await manager.aerodromeFactory();
+      
+      if (currentRouter === ethers.constants.AddressZero) {
+        console.log("Setting Aerodrome router...");
+        await manager.setAerodromeRouter(AERODROME_ROUTER);
+      }
+      
+      if (currentFactory === ethers.constants.AddressZero) {
+        console.log("Setting Aerodrome factory...");
+        await manager.setAerodromeFactory(AERODROME_FACTORY);
+      }
       
       // Initialize token contracts
       const tokenAddresses = [
@@ -185,6 +199,159 @@ describe("UserLPManager Balance Tests", function() {
       }
     } catch (error) {
       console.log(`Error checking LP positions: ${error.message}`);
+    }
+  });
+  
+  it("should check claimable fees in LP positions", async function() {
+    console.log("\n=== Claimable Fees in LP Positions ===");
+    
+    try {
+      // Define token pairs to check
+      const tokenPairs = [
+        { tokenA: USDC, tokenB: AERO, name: "USDC-AERO" },
+        { tokenA: VIRTUAL, tokenB: WETH, name: "VIRTUAL-WETH" },
+        { tokenA: USDC, tokenB: WETH, name: "USDC-WETH" }
+      ];
+      
+      let feesFound = false;
+      
+      // Create interface for Aerodrome Pair
+      const aerodromeFactory = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromeFactory", AERODROME_FACTORY);
+      
+      for (const pair of tokenPairs) {
+        try {
+          console.log(`\nChecking fees for ${pair.name}:`);
+          
+          // Get pool addresses (stable and volatile) for this token pair
+          const [stablePool, volatilePool] = await manager.getAerodromePools(pair.tokenA, pair.tokenB);
+          
+          // Check stable pool if it exists
+          if (stablePool !== ethers.constants.AddressZero) {
+            console.log(`Stable pool: ${stablePool}`);
+            
+            try {
+              // Check LP balance first to see if we have any position
+              const poolContract = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", stablePool);
+              const lpBalance = await poolContract.balanceOf(managerAddress);
+              
+              if (lpBalance.gt(0)) {
+                console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+                
+                // Get token info for better display
+                const token0 = await poolContract.token0();
+                const token1 = await poolContract.token1();
+                
+                // Find token info by address
+                const token0Info = tokenContracts.find(t => 
+                  t.address.toLowerCase() === token0.toLowerCase()
+                );
+                const token1Info = tokenContracts.find(t => 
+                  t.address.toLowerCase() === token1.toLowerCase()
+                );
+                
+                // Try to check claimable fees
+                let claimable0 = ethers.BigNumber.from(0);
+                let claimable1 = ethers.BigNumber.from(0);
+                
+                try {
+                  claimable0 = await poolContract.claimable0(managerAddress);
+                  claimable1 = await poolContract.claimable1(managerAddress);
+                  
+                  // Display claimable fees with token symbols if found
+                  console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
+                    token0Info ? 
+                      ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
+                      ethers.utils.formatEther(claimable0)
+                  }`);
+                  
+                  console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
+                    token1Info ? 
+                      ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
+                      ethers.utils.formatEther(claimable1)
+                  }`);
+                  
+                  if (claimable0.gt(0) || claimable1.gt(0)) {
+                    feesFound = true;
+                  }
+                } catch (error) {
+                  console.log(`Unable to check claimable fees for stable pool. This may not be implemented on this pool: ${error.message}`);
+                }
+              } else {
+                console.log("No LP balance in stable pool");
+              }
+            } catch (error) {
+              console.log(`Error accessing stable pool contract: ${error.message}`);
+            }
+          }
+          
+          // Check volatile pool if it exists
+          if (volatilePool !== ethers.constants.AddressZero) {
+            console.log(`Volatile pool: ${volatilePool}`);
+            
+            try {
+              // Check LP balance first to see if we have any position
+              const poolContract = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
+              const lpBalance = await poolContract.balanceOf(managerAddress);
+              
+              if (lpBalance.gt(0)) {
+                console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+                
+                // Get token info for better display
+                const token0 = await poolContract.token0();
+                const token1 = await poolContract.token1();
+                
+                // Find token info by address
+                const token0Info = tokenContracts.find(t => 
+                  t.address.toLowerCase() === token0.toLowerCase()
+                );
+                const token1Info = tokenContracts.find(t => 
+                  t.address.toLowerCase() === token1.toLowerCase()
+                );
+                
+                // Try to check claimable fees
+                let claimable0 = ethers.BigNumber.from(0);
+                let claimable1 = ethers.BigNumber.from(0);
+                
+                try {
+                  claimable0 = await poolContract.claimable0(managerAddress);
+                  claimable1 = await poolContract.claimable1(managerAddress);
+                  
+                  // Display claimable fees with token symbols if found
+                  console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
+                    token0Info ? 
+                      ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
+                      ethers.utils.formatEther(claimable0)
+                  }`);
+                  
+                  console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
+                    token1Info ? 
+                      ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
+                      ethers.utils.formatEther(claimable1)
+                  }`);
+                  
+                  if (claimable0.gt(0) || claimable1.gt(0)) {
+                    feesFound = true;
+                  }
+                } catch (error) {
+                  console.log(`Unable to check claimable fees for volatile pool. This may not be implemented on this pool: ${error.message}`);
+                }
+              } else {
+                console.log("No LP balance in volatile pool");
+              }
+            } catch (error) {
+              console.log(`Error accessing volatile pool contract: ${error.message}`);
+            }
+          }
+        } catch (error) {
+          console.log(`Error checking fees for ${pair.name}: ${error.message}`);
+        }
+      }
+      
+      if (!feesFound) {
+        console.log("\nNo pools with claimable fees found");
+      }
+    } catch (error) {
+      console.log(`Error checking claimable fees: ${error.message}`);
     }
   });
   

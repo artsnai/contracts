@@ -81,18 +81,7 @@ async function main() {
   console.log(`  AERO: ${ethers.utils.formatEther(aeroBalance)}`);
   console.log(`  VIRTUAL: ${ethers.utils.formatEther(virtualBalance)}`);
   
-  console.log("\n=== Step 4: Deposit Some ETH to Manager for Gas ===");
-  
-  // Send ETH to manager for gas
-  console.log("Sending ETH to manager for gas...");
-  const ethTx = await deployer.sendTransaction({
-    to: managerAddress,
-    value: ethers.utils.parseEther("0.001"), // 0.001 ETH for gas (reduced amount)
-  });
-  await ethTx.wait();
-  console.log("ETH sent to manager");
-  
-  console.log("\n=== Step 5: Deposit Tokens to Manager ===");
+  console.log("\n=== Step 4: Deposit Tokens to Manager ===");
   
   // Define token amounts to deposit - adjust based on your wallet balance
   // Using MINIMAL amounts for testing only

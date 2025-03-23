@@ -9,6 +9,10 @@ interface IAerodromePair {
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
     function token0() external view returns (address);
     function token1() external view returns (address);
+    function claimFees() external returns (uint, uint);
+    function balanceOf(address owner) external view returns (uint256);
+    function claimable0(address owner) external view returns (uint256);
+    function claimable1(address owner) external view returns (uint256);
 }
 
 interface IAerodromeRouter {
@@ -97,6 +101,7 @@ interface IAerodromeGaugeDetailed {
 error NoRewardsAvailable();
 error GaugeClaimFailed();
 error InvalidGaugeState();
+error FeeClaimFailed();
 
 contract UserLPManager is Ownable {
     address public immutable factory;
@@ -122,6 +127,7 @@ contract UserLPManager is Ownable {
     event LPUnstaked(address indexed pool, address indexed gauge, uint256 amount);
     event RewardsClaimed(address indexed gauge, address[] rewardTokens, uint256[] amounts);
     event DirectRewardClaimed(address indexed gauge, address indexed rewardToken, uint256 amount);
+    event FeesClaimed(address indexed pool, uint256 amount0, uint256 amount1);
     
     // Modifiers
     modifier onlyManagerOrOwner() {
@@ -748,5 +754,66 @@ contract UserLPManager is Ownable {
     // Function to check if an address is a manager
     function isManager(address _addr) external view returns (bool) {
         return managers[_addr];
+    }
+
+    // Function to claim fees from an Aerodrome pool
+    function claimFees(address tokenA, address tokenB, bool stable) external onlyManagerOrOwner returns (uint256 amount0, uint256 amount1) {
+        require(aerodromeFactory != address(0), "Aerodrome factory not set");
+        
+        // Get the pool address
+        address pool = IAerodromeFactory(aerodromeFactory).getPair(tokenA, tokenB, stable);
+        require(pool != address(0), "Pool not found");
+        
+        emit DebugLog("Claiming fees from pool", abi.encode(pool, tokenA, tokenB, stable));
+        
+        // Get tokens in the pool to know which amounts we're claiming
+        address token0 = IAerodromePair(pool).token0();
+        address token1 = IAerodromePair(pool).token1();
+        
+        // Get token balances before fee claim
+        uint256 balance0Before = IERC20(token0).balanceOf(address(this));
+        uint256 balance1Before = IERC20(token1).balanceOf(address(this));
+        
+        // Claim fees
+        try IAerodromePair(pool).claimFees() returns (uint _amount0, uint _amount1) {
+            amount0 = _amount0;
+            amount1 = _amount1;
+            
+            // Verify actual amounts received
+            uint256 balance0After = IERC20(token0).balanceOf(address(this));
+            uint256 balance1After = IERC20(token1).balanceOf(address(this));
+            
+            uint256 actualAmount0 = balance0After > balance0Before ? balance0After - balance0Before : 0;
+            uint256 actualAmount1 = balance1After > balance1Before ? balance1After - balance1Before : 0;
+            
+            emit DebugLog("Fees claimed", abi.encode(actualAmount0, actualAmount1, token0, token1));
+            emit FeesClaimed(pool, actualAmount0, actualAmount1);
+            
+            return (actualAmount0, actualAmount1);
+        } catch Error(string memory reason) {
+            emit DebugLog("claimFees failed with error", abi.encode(reason));
+            revert(string(abi.encodePacked("claimFees failed: ", reason)));
+        } catch {
+            emit DebugLog("claimFees failed with unknown error", "");
+            revert FeeClaimFailed();
+        }
+    }
+    
+    // Function to check claimable fees from an Aerodrome pool
+    function getClaimableFees(address tokenA, address tokenB, bool stable) external view returns (uint256 lpBalance, uint256 claimable0Amount, uint256 claimable1Amount) {
+        require(aerodromeFactory != address(0), "Aerodrome factory not set");
+        
+        // Get the pool address
+        address pool = IAerodromeFactory(aerodromeFactory).getPair(tokenA, tokenB, stable);
+        if (pool == address(0)) {
+            return (0, 0, 0); // Return zeros if pool doesn't exist
+        }
+        
+        // Get LP balance and claimable fees
+        lpBalance = IAerodromePair(pool).balanceOf(address(this));
+        claimable0Amount = IAerodromePair(pool).claimable0(address(this));
+        claimable1Amount = IAerodromePair(pool).claimable1(address(this));
+        
+        return (lpBalance, claimable0Amount, claimable1Amount);
     }
 } 

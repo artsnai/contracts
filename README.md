@@ -105,7 +105,7 @@ const { factory } = await deploy();
 Set up your .env file with the following variables:
 
 ```
-LP_MANAGER_FACTORY=0xe7c15dF3929f4CF32e57749C94fB018521a0C765
+LP_MANAGER_FACTORY=0xF5488216EC9aAC50CD739294C9961884190caBe3
 PRIVATE_KEY=your_private_key_here
 RPC_URL=your_rpc_url_here
 ```

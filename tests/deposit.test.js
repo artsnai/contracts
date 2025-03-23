@@ -8,7 +8,7 @@ const fs = require("fs");
 dotenv.config({ path: "deployments/base.env" });
 
 // Use environment variables with fallbacks
-const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xe7c15dF3929f4CF32e57749C94fB018521a0C765";
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xF5488216EC9aAC50CD739294C9961884190caBe3";
 const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
 const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";

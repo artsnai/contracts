@@ -29,7 +29,7 @@ async function main(options = {}) {
   const UserLPManagerFactory = await ethers.getContractFactory("UserLPManagerFactory");
   console.log("Deploying UserLPManagerFactory...");
   const managerFactory = await UserLPManagerFactory.deploy(aerodromeRouter, {
-    gasPrice: ethers.utils.parseUnits("0.1", "gwei"), // Use a lower gas price to reduce costs
+    gasPrice: ethers.utils.parseUnits("1", "gwei"), // Increased from 0.1 to 1 gwei
     gasLimit: 5000000, // Adjust gas limit if needed
   });
   await managerFactory.deployed();
