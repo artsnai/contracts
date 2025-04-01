@@ -1,5 +1,4 @@
 const { ethers } = require('hardhat');
-const { claimFees } = require('../utils/claim-fees');
 const dotenv = require('dotenv');
 
 // Load environment variables
@@ -11,7 +10,7 @@ const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 
 async function main() {
   console.log("===========================================");
-  console.log("CHECKING AND CLAIMING FEES FROM USDC-AERO POOL");
+  console.log("CLAIMING FEES FROM USDC-AERO POOL");
   console.log("===========================================");
   
   // Get signer
@@ -31,12 +30,7 @@ async function main() {
   console.log(`Stable Pool: ${stablePool}`);
   console.log(`Volatile Pool: ${volatilePool}`);
   
-  // Check LP balance
-  const volatilePoolContract = await ethers.getContractAt("IERC20", volatilePool);
-  const lpBalance = await volatilePoolContract.balanceOf(managerAddress);
-  console.log(`\nLP Balance in Volatile Pool: ${ethers.utils.formatEther(lpBalance)}`);
-  
-  // Get pool contract to check claimable fees
+  // Get pool contract
   const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
   
   // Check claimable fees directly from pool
@@ -47,13 +41,16 @@ async function main() {
   const token0 = await pool.token0();
   const token1 = await pool.token1();
   
+  // Determine which token is USDC to use correct decimals
+  const isToken0USDC = token0.toLowerCase() === USDC.toLowerCase();
+  
   console.log(`\nPool Tokens:`);
-  console.log(`Token0: ${token0}`);
-  console.log(`Token1: ${token1}`);
+  console.log(`Token0: ${token0}${isToken0USDC ? ' (USDC)' : ' (AERO)'}`);
+  console.log(`Token1: ${token1}${!isToken0USDC ? ' (USDC)' : ' (AERO)'}`);
   
   console.log(`\nClaimable Fees:`);
-  console.log(`Token0: ${ethers.utils.formatEther(claimable0)}`);
-  console.log(`Token1: ${ethers.utils.formatEther(claimable1)}`);
+  console.log(`Token0: ${ethers.utils.formatUnits(claimable0, isToken0USDC ? 6 : 18)} ${isToken0USDC ? 'USDC' : 'AERO'}`);
+  console.log(`Token1: ${ethers.utils.formatUnits(claimable1, !isToken0USDC ? 6 : 18)} ${!isToken0USDC ? 'USDC' : 'AERO'}`);
   
   // Only proceed if we have fees to claim
   if (claimable0.eq(0) && claimable1.eq(0)) {
@@ -63,24 +60,41 @@ async function main() {
   
   console.log("\nAttempting to claim fees...");
   
-  // Execute the claim with high gas limit
-  const result = await claimFees({
-    tokenA: USDC,
-    tokenB: AERO,
-    stable: false, // Volatile pool
-    signer: signer,
-    silent: false
-  });
-  
-  if (result.success) {
-    console.log("===========================================");
-    console.log("🎉 CLAIM SUCCESSFUL!");
-    console.log("===========================================");
-  } else {
-    console.log("===========================================");
-    console.log("❌ CLAIM FAILED:");
-    console.log(result.message);
-    console.log("===========================================");
+  try {
+    // Make direct call to claimFees with high gas limit
+    const tx = await manager.claimFees(
+      USDC,
+      AERO,
+      false, // volatile pool
+      {
+        gasLimit: 3000000
+      }
+    );
+    
+    console.log(`Transaction submitted: ${tx.hash}`);
+    const receipt = await tx.wait();
+    
+    // Check if fees were actually claimed
+    const newClaimable0 = await pool.claimable0(managerAddress);
+    const newClaimable1 = await pool.claimable1(managerAddress);
+    
+    if (newClaimable0.lt(claimable0) || newClaimable1.lt(claimable1)) {
+      console.log("\n✅ Fees claimed successfully!");
+      console.log(`Fees claimed:`);
+      console.log(`Token0: ${ethers.utils.formatUnits(claimable0.sub(newClaimable0), isToken0USDC ? 6 : 18)} ${isToken0USDC ? 'USDC' : 'AERO'}`);
+      console.log(`Token1: ${ethers.utils.formatUnits(claimable1.sub(newClaimable1), !isToken0USDC ? 6 : 18)} ${!isToken0USDC ? 'USDC' : 'AERO'}`);
+    } else {
+      console.log("\n❌ Transaction completed but fees were not claimed");
+      console.log("This might indicate an issue with the pool contract or insufficient permissions");
+    }
+  } catch (error) {
+    console.log("\n❌ Failed to claim fees:");
+    console.log(error.message);
+    
+    if (error.error) {
+      console.log("\nProvider Error:");
+      console.log(error.error);
+    }
   }
 }
 

@@ -152,8 +152,14 @@ async function claimFees(options = {}) {
     
     // Execute the claim with a manual gas limit to ensure enough gas
     const gasOptions = {
-      gasLimit: 1000000, // High gas limit to handle complex operations
+      gasLimit: 3000000, // Increased gas limit
     };
+    
+    if (!silent) {
+      console.log('--------------------------------------');
+      console.log('Attempting to claim fees with increased gas limit...');
+      console.log(`Gas limit: ${gasOptions.gasLimit}`);
+    }
     
     const tx = await manager.claimFees(tokenAAddress, tokenBAddress, stable, gasOptions);
     if (!silent) console.log(`Transaction submitted: ${tx.hash}`);
