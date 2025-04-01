@@ -1,6 +1,13 @@
 const { ethers } = require('hardhat');
 const { formatUnits, parseUnits } = require('ethers/lib/utils');
-const { getConfig, getTokenInfo, validateAddress, printSuccessMessage, printErrorMessage, getTokenSymbol } = require('./helpers');
+const { validateAddress, printSuccessMessage, printErrorMessage, getTokenSymbol, getGasOptions } = require('./helpers');
+const dotenv = require('dotenv');
+
+// Load environment variables
+dotenv.config({ path: "deployments/base.env" });
+
+// Use environment variables with fallbacks
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY;
 
 /**
  * Claim fees from Aerodrome pools
@@ -71,12 +78,17 @@ async function claimFees(options = {}) {
     const userAddress = await signer.getAddress();
     if (!silent) console.log(`User: ${userAddress}`);
     
-    // Get config
-    const config = await getConfig();
-    if (!silent) console.log(`LP Manager Factory: ${config.managerFactory}`);
+    if (!LP_MANAGER_FACTORY) {
+      const message = 'LP_MANAGER_FACTORY environment variable not set';
+      if (!silent) console.log(message);
+      result.message = message;
+      return result;
+    }
+    
+    if (!silent) console.log(`LP Manager Factory: ${LP_MANAGER_FACTORY}`);
     
     // Get the manager contract
-    const managerFactory = await ethers.getContractAt('UserLPManagerFactory', config.managerFactory);
+    const managerFactory = await ethers.getContractAt('UserLPManagerFactory', LP_MANAGER_FACTORY);
     const managerAddress = await managerFactory.getUserManager(userAddress);
     
     if (managerAddress === ethers.constants.AddressZero) {
@@ -88,17 +100,6 @@ async function claimFees(options = {}) {
     
     if (!silent) console.log(`LP Manager: ${managerAddress}`);
     const manager = await ethers.getContractAt('UserLPManager', managerAddress, signer);
-    
-    // Get token info
-    const tokenAInfo = await getTokenInfo(tokenAAddress);
-    const tokenBInfo = await getTokenInfo(tokenBAddress);
-    
-    if (!silent) {
-      console.log('--------------------------------------');
-      console.log(`Token A: ${tokenAInfo.symbol} (${tokenAAddress})`);
-      console.log(`Token B: ${tokenBInfo.symbol} (${tokenBAddress})`);
-      console.log(`Pool Type: ${stable ? 'Stable' : 'Volatile'}`);
-    }
     
     // Check claimable fees
     if (!silent) {
@@ -127,15 +128,10 @@ async function claimFees(options = {}) {
     const tokenSymbol0 = await getTokenSymbol(token0Address);
     const tokenSymbol1 = await getTokenSymbol(token1Address);
     
-    const token0Decimals = token0Address.toLowerCase() === tokenAAddress.toLowerCase() ? 
-      tokenAInfo.decimals : tokenBInfo.decimals;
-    const token1Decimals = token0Address.toLowerCase() === tokenAAddress.toLowerCase() ? 
-      tokenBInfo.decimals : tokenAInfo.decimals;
-    
     if (!silent) {
       console.log(`LP Balance: ${formatUnits(lpBalance, 18)}`);
-      console.log(`Claimable ${tokenSymbol0}: ${formatUnits(claimable0, token0Decimals)}`);
-      console.log(`Claimable ${tokenSymbol1}: ${formatUnits(claimable1, token1Decimals)}`);
+      console.log(`Claimable ${tokenSymbol0}: ${formatUnits(claimable0, 18)}`);
+      console.log(`Claimable ${tokenSymbol1}: ${formatUnits(claimable1, 18)}`);
     }
     
     // Check if there are fees to claim
@@ -154,13 +150,39 @@ async function claimFees(options = {}) {
       console.log('Claiming fees...');
     }
     
-    // Execute the claim
-    const tx = await manager.claimFees(tokenAAddress, tokenBAddress, stable);
+    // Execute the claim with a manual gas limit to ensure enough gas
+    const gasOptions = {
+      gasLimit: 1000000, // High gas limit to handle complex operations
+    };
+    
+    const tx = await manager.claimFees(tokenAAddress, tokenBAddress, stable, gasOptions);
     if (!silent) console.log(`Transaction submitted: ${tx.hash}`);
     
     // Wait for confirmation
     const receipt = await tx.wait();
     result.transactionHash = receipt.transactionHash;
+    
+    // Log debug events
+    if (!silent) {
+      console.log('--------------------------------------');
+      console.log('📝 Debug Events:');
+      for (const event of receipt.events) {
+        if (event.event === 'DebugLog') {
+          const [message, data] = event.args;
+          console.log(`- ${message}`);
+          try {
+            // Try to decode the data as bytes
+            const decoded = ethers.utils.defaultAbiCoder.decode(['bytes'], data)[0];
+            const asString = ethers.utils.toUtf8String(decoded);
+            console.log(`  Data: ${asString}`);
+          } catch (e) {
+            // If decoding fails, just show the raw data
+            console.log(`  Raw data: ${data}`);
+          }
+        }
+      }
+      console.log('--------------------------------------');
+    }
     
     // Look for the FeesClaimed event
     const feesClaimedEvent = receipt.events.find(e => e.event === 'FeesClaimed');
@@ -177,8 +199,8 @@ async function claimFees(options = {}) {
         console.log('--------------------------------------');
         console.log('✅ Fees claimed successfully!');
         console.log(`Pool: ${pool}`);
-        console.log(`${tokenSymbol0} Claimed: ${formatUnits(amount0, token0Decimals)}`);
-        console.log(`${tokenSymbol1} Claimed: ${formatUnits(amount1, token1Decimals)}`);
+        console.log(`${tokenSymbol0} Claimed: ${formatUnits(amount0, 18)}`);
+        console.log(`${tokenSymbol1} Claimed: ${formatUnits(amount1, 18)}`);
         
         printSuccessMessage('Fee claim completed successfully!');
       }

@@ -1,5 +1,5 @@
 const { ethers } = require("hardhat");
-const { getNetworkConfig, getDeadline } = require("./helpers");
+const { getNetworkConfig, getDeadline, getGasOptions } = require("./helpers");
 const { getOrCreateManager } = require("./create-manager");
 
 /**
@@ -34,6 +34,9 @@ async function addLiquidity({
   // Get signer
   const [deployer] = await ethers.getSigners();
   console.log("Using account:", deployer.address);
+  
+  // Get dynamic gas options
+  const gasOptions = await getGasOptions();
   
   // Connect to manager - either use provided address or find/create one
   let manager;
@@ -139,7 +142,8 @@ async function addLiquidity({
       amount1Wei,
       minAmount0,
       minAmount1,
-      deadline
+      deadline,
+      { ...gasOptions }
     );
     
     console.log(`Transaction sent: ${tx.hash}`);

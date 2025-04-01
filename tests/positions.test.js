@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { getGasOptions } = require("../utils/helpers");
 require("dotenv").config({ path: "deployments/base.env" });
 
 // Contract addresses from Base network

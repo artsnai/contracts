@@ -1,6 +1,6 @@
 const hre = require("hardhat");
 const { ethers } = require("hardhat");
-const { getNetworkConfig } = require("./helpers");
+const { getNetworkConfig, getGasOptions } = require("./helpers");
 const path = require("path");
 const fs = require("fs");
 const dotenv = require("dotenv");
@@ -39,6 +39,9 @@ async function getOrCreateManager(factoryAddress) {
   // Load network configuration
   const networkConfig = getNetworkConfig();
   
+  // Get dynamic gas options
+  const gasOptions = await getGasOptions();
+  
   // Step 1: Try to find an existing factory
   let managerFactory;
   
@@ -74,7 +77,7 @@ async function getOrCreateManager(factoryAddress) {
       const isFactorySet = await manager.aerodromeFactory();
       if (isFactorySet === ethers.constants.AddressZero) {
         console.log("Setting Aerodrome Factory address...");
-        await manager.setAerodromeFactory(networkConfig.AERODROME_FACTORY);
+        await manager.setAerodromeFactory(networkConfig.AERODROME_FACTORY, { ...gasOptions });
         console.log("Aerodrome Factory address set successfully!");
       } else {
         console.log("Aerodrome Factory already set:", isFactorySet);
@@ -83,7 +86,7 @@ async function getOrCreateManager(factoryAddress) {
       // If we can't check, try setting it anyway
       try {
         console.log("Setting Aerodrome Factory address...");
-        await manager.setAerodromeFactory(networkConfig.AERODROME_FACTORY);
+        await manager.setAerodromeFactory(networkConfig.AERODROME_FACTORY, { ...gasOptions });
         console.log("Aerodrome Factory address set successfully!");
       } catch (err) {
         console.warn("Warning: Could not set Aerodrome Factory:", err.message);
@@ -95,7 +98,7 @@ async function getOrCreateManager(factoryAddress) {
   
   // Step 3: If no existing manager, create a new one
   console.log("No existing manager found. Creating a new one...");
-  const createTx = await managerFactory.createManager();
+  const createTx = await managerFactory.createManager({ ...gasOptions });
   const createReceipt = await createTx.wait();
   
   // Get the manager address from event
@@ -108,7 +111,7 @@ async function getOrCreateManager(factoryAddress) {
   
   // Set the Aerodrome Factory address (required for pool operations)
   console.log("Setting Aerodrome Factory address...");
-  await manager.setAerodromeFactory(networkConfig.AERODROME_FACTORY);
+  await manager.setAerodromeFactory(networkConfig.AERODROME_FACTORY, { ...gasOptions });
   console.log("Aerodrome Factory address set successfully!");
   
   // Return the manager instance

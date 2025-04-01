@@ -15,10 +15,14 @@ module.exports = {
   networks: {
     hardhat: {
       chainId: 8453,
+      hardfork: "shanghai",
       forking: {
         url: process.env.BASE_MAINNET_RPC_URL || "https://mainnet.base.org",
-        blockNumber: 9500000 // Optional: specify a recent block number
-      }
+        blockNumber: 9500000
+      },
+      gas: 12000000,
+      blockGasLimit: 15000000,
+      allowUnlimitedContractSize: true
     },
     base_sepolia: {
       url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",

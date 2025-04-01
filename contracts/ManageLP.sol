@@ -773,11 +773,67 @@ contract UserLPManager is Ownable {
         // Get token balances before fee claim
         uint256 balance0Before = IERC20(token0).balanceOf(address(this));
         uint256 balance1Before = IERC20(token1).balanceOf(address(this));
+
+        // Check if we have claimable fees before attempting to claim
+        uint256 claimable0;
+        uint256 claimable1;
         
-        // Claim fees
-        try IAerodromePair(pool).claimFees() returns (uint _amount0, uint _amount1) {
-            amount0 = _amount0;
-            amount1 = _amount1;
+        try IAerodromePair(pool).claimable0(address(this)) returns (uint256 _claimable0) {
+            claimable0 = _claimable0;
+        } catch {
+            claimable0 = 0;
+        }
+        
+        try IAerodromePair(pool).claimable1(address(this)) returns (uint256 _claimable1) {
+            claimable1 = _claimable1;
+        } catch {
+            claimable1 = 0;
+        }
+        
+        emit DebugLog("Claimable fees", abi.encode(claimable0, claimable1));
+        
+        // Only attempt to claim if there are actually fees to claim
+        if (claimable0 > 0 || claimable1 > 0) {
+            bool claimed = false;
+            
+            // Try standard claim first
+            try IAerodromePair(pool).claimFees() returns (uint _amount0, uint _amount1) {
+                amount0 = _amount0;
+                amount1 = _amount1;
+                claimed = true;
+                emit DebugLog("Standard claim succeeded", abi.encode(amount0, amount1));
+            } catch Error(string memory reason) {
+                emit DebugLog("Standard claimFees failed with error", abi.encode(reason));
+                // Continue to try fallback methods
+            } catch {
+                emit DebugLog("Standard claimFees failed with unknown error", "");
+                // Continue to try fallback methods
+            }
+            
+            // If standard claim fails, try low-level call directly
+            if (!claimed) {
+                emit DebugLog("Trying direct low-level call", "");
+                
+                // First check if there's any LP balance directly in the contract
+                uint256 lpBalance = IERC20(pool).balanceOf(address(this));
+                emit DebugLog("LP balance in contract", abi.encode(lpBalance));
+                
+                // Some pools require LP tokens to be held directly to claim fees
+                if (lpBalance > 0) {
+                    (bool success, bytes memory data) = pool.call(abi.encodeWithSignature("claimFees()"));
+                    
+                    if (success) {
+                        // We successfully called claimFees(), but we can't reliably decode the result
+                        // Just mark as claimed and continue
+                        claimed = true;
+                        emit DebugLog("Direct call succeeded", "");
+                    } else {
+                        emit DebugLog("Direct call failed", "");
+                    }
+                } else {
+                    emit DebugLog("No LP tokens in contract, fees might be uncollectible", "");
+                }
+            }
             
             // Verify actual amounts received
             uint256 balance0After = IERC20(token0).balanceOf(address(this));
@@ -786,16 +842,14 @@ contract UserLPManager is Ownable {
             uint256 actualAmount0 = balance0After > balance0Before ? balance0After - balance0Before : 0;
             uint256 actualAmount1 = balance1After > balance1Before ? balance1After - balance1Before : 0;
             
-            emit DebugLog("Fees claimed", abi.encode(actualAmount0, actualAmount1, token0, token1));
+            emit DebugLog("Balances after", abi.encode(balance0After, balance1After));
+            emit DebugLog("Actual amounts received", abi.encode(actualAmount0, actualAmount1));
             emit FeesClaimed(pool, actualAmount0, actualAmount1);
             
             return (actualAmount0, actualAmount1);
-        } catch Error(string memory reason) {
-            emit DebugLog("claimFees failed with error", abi.encode(reason));
-            revert(string(abi.encodePacked("claimFees failed: ", reason)));
-        } catch {
-            emit DebugLog("claimFees failed with unknown error", "");
-            revert FeeClaimFailed();
+        } else {
+            emit DebugLog("No fees to claim", abi.encode(claimable0, claimable1));
+            return (0, 0);
         }
     }
     
@@ -809,10 +863,31 @@ contract UserLPManager is Ownable {
             return (0, 0, 0); // Return zeros if pool doesn't exist
         }
         
-        // Get LP balance and claimable fees
-        lpBalance = IAerodromePair(pool).balanceOf(address(this));
-        claimable0Amount = IAerodromePair(pool).claimable0(address(this));
-        claimable1Amount = IAerodromePair(pool).claimable1(address(this));
+        // Get LP balance safely
+        lpBalance = 0;
+        claimable0Amount = 0;
+        claimable1Amount = 0;
+        
+        // Check for LP balance in the contract
+        try IAerodromePair(pool).balanceOf(address(this)) returns (uint256 _lpBalance) {
+            lpBalance = _lpBalance;
+        } catch {
+            // If balanceOf fails, leave LP balance as 0
+        }
+        
+        // Always check for claimable fees, regardless of LP balance
+        // (because LP might be staked in gauges but still have claimable fees)
+        try IAerodromePair(pool).claimable0(address(this)) returns (uint256 _claimable0) {
+            claimable0Amount = _claimable0;
+        } catch {
+            // If claimable0 is not available, leave it as 0
+        }
+        
+        try IAerodromePair(pool).claimable1(address(this)) returns (uint256 _claimable1) {
+            claimable1Amount = _claimable1;
+        } catch {
+            // If claimable1 is not available, leave it as 0
+        }
         
         return (lpBalance, claimable0Amount, claimable1Amount);
     }

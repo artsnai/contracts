@@ -1,5 +1,6 @@
 const hre = require("hardhat");
 const { ethers } = require("hardhat");
+
 const { getNetworkConfig } = require("../utils/helpers");
 
 /**
@@ -16,6 +17,20 @@ async function main(options = {}) {
   // Get signer (owner of the manager)
   const [deployer] = await ethers.getSigners();
   console.log("Deploying contracts with account:", deployer.address);
+
+  // Get gas price estimation
+  const feeData = await ethers.provider.getFeeData();
+  const gasOptions = {};
+  
+  // Use gasPrice for networks that don't support EIP-1559
+  if (feeData.gasPrice) {
+    gasOptions.gasPrice = feeData.gasPrice;
+  } 
+  // For EIP-1559 compatible networks
+  else if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+    gasOptions.maxFeePerGas = feeData.maxFeePerGas;
+    gasOptions.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+  }
   
   // Load network-specific configuration (router addresses, etc.)
   const networkConfig = getNetworkConfig();
@@ -28,10 +43,10 @@ async function main(options = {}) {
   // Deploy UserLPManagerFactory
   const UserLPManagerFactory = await ethers.getContractFactory("UserLPManagerFactory");
   console.log("Deploying UserLPManagerFactory...");
-  const managerFactory = await UserLPManagerFactory.deploy(aerodromeRouter, {
-    gasPrice: ethers.utils.parseUnits("1", "gwei"), // Increased from 0.1 to 1 gwei
-    gasLimit: 5000000, // Adjust gas limit if needed
-  });
+  const managerFactory = await UserLPManagerFactory.deploy(
+    aerodromeRouter,  // constructor argument
+    gasOptions        // transaction options
+  );
   await managerFactory.deployed();
   console.log("UserLPManagerFactory deployed to:", managerFactory.address);
   

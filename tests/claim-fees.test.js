@@ -1,20 +1,20 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { getGasOptions } = require("../utils/helpers");
 const dotenv = require("dotenv");
-const path = require("path");
-const fs = require("fs");
 
 // Load environment variables from base.env
 dotenv.config({ path: "deployments/base.env" });
 
 // Use environment variables with fallbacks
-const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xF5488216EC9aAC50CD739294C9961884190caBe3";
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY;
 const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
 const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const VIRTUAL = process.env.VIRTUAL || "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b";
 const AERODROME_ROUTER = process.env.AERODROME_ROUTER || "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
 const AERODROME_FACTORY = process.env.AERODROME_FACTORY || "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
+
 
 describe("UserLPManager Fee Claiming Tests", function() {
   // Set timeout for long-running tests
@@ -46,7 +46,16 @@ describe("UserLPManager Fee Claiming Tests", function() {
       // Check if manager exists, create one if it doesn't
       if (managerAddress === ethers.constants.AddressZero) {
         console.log("No manager found for this wallet. Creating a new manager...");
-        const createTx = await factory.createManager();
+        
+    // Get dynamic gas options
+    const gasOptions = await getGasOptions();
+    console.log("Using dynamic gas options:", 
+      gasOptions.gasPrice ? 
+        `Gas Price: ${ethers.utils.formatUnits(gasOptions.gasPrice, 'gwei')} gwei` : 
+        `Max Fee: ${ethers.utils.formatUnits(gasOptions.maxFeePerGas, 'gwei')} gwei, Priority Fee: ${ethers.utils.formatUnits(gasOptions.maxPriorityFeePerGas, 'gwei')} gwei`
+    );
+    
+    const createTx = await factory.createManager(gasOptions);
         const createReceipt = await createTx.wait();
         
         // Get the manager address from event
@@ -153,43 +162,39 @@ describe("UserLPManager Fee Claiming Tests", function() {
             const lpToken = await ethers.getContractAt("IERC20", stablePool);
             const lpBalance = await lpToken.balanceOf(managerAddress);
             
-            if (lpBalance.gt(0)) {
-              console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+            console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+            
+            // Get claimable fees directly from the pool
+            try {
+              const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", stablePool);
+              const claimable0 = await pool.claimable0(managerAddress);
+              const claimable1 = await pool.claimable1(managerAddress);
               
-              // Get claimable fees directly from the pool
-              try {
-                const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", stablePool);
-                const claimable0 = await pool.claimable0(managerAddress);
-                const claimable1 = await pool.claimable1(managerAddress);
-                
-                // Get token info for display
-                const token0 = await pool.token0();
-                const token1 = await pool.token1();
-                
-                // Find token symbols
-                const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
-                const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
-                
-                console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
-                  token0Info ? 
-                    ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
-                    ethers.utils.formatEther(claimable0)
-                }`);
-                
-                console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
-                  token1Info ? 
-                    ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
-                    ethers.utils.formatEther(claimable1)
-                }`);
-                
-                if (claimable0.gt(0) || claimable1.gt(0)) {
-                  feesFound = true;
-                }
-              } catch (error) {
-                console.log(`Error checking claimables from pool directly: ${error.message}`);
+              // Get token info for display
+              const token0 = await pool.token0();
+              const token1 = await pool.token1();
+              
+              // Find token symbols
+              const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
+              const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
+              
+              console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
+                token0Info ? 
+                  ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
+                  ethers.utils.formatEther(claimable0)
+              }`);
+              
+              console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
+                token1Info ? 
+                  ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
+                  ethers.utils.formatEther(claimable1)
+              }`);
+              
+              if (claimable0.gt(0) || claimable1.gt(0)) {
+                feesFound = true;
               }
-            } else {
-              console.log("No LP balance in stable pool");
+            } catch (error) {
+              console.log(`Error checking claimables from pool directly: ${error.message}`);
             }
           } catch (error) {
             console.log(`Error checking LP balance for stable pool: ${error.message}`);
@@ -205,43 +210,39 @@ describe("UserLPManager Fee Claiming Tests", function() {
             const lpToken = await ethers.getContractAt("IERC20", volatilePool);
             const lpBalance = await lpToken.balanceOf(managerAddress);
             
-            if (lpBalance.gt(0)) {
-              console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+            console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+            
+            // Get claimable fees directly from the pool
+            try {
+              const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
+              const claimable0 = await pool.claimable0(managerAddress);
+              const claimable1 = await pool.claimable1(managerAddress);
               
-              // Get claimable fees directly from the pool
-              try {
-                const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
-                const claimable0 = await pool.claimable0(managerAddress);
-                const claimable1 = await pool.claimable1(managerAddress);
-                
-                // Get token info for display
-                const token0 = await pool.token0();
-                const token1 = await pool.token1();
-                
-                // Find token symbols
-                const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
-                const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
-                
-                console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
-                  token0Info ? 
-                    ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
-                    ethers.utils.formatEther(claimable0)
-                }`);
-                
-                console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
-                  token1Info ? 
-                    ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
-                    ethers.utils.formatEther(claimable1)
-                }`);
-                
-                if (claimable0.gt(0) || claimable1.gt(0)) {
-                  feesFound = true;
-                }
-              } catch (error) {
-                console.log(`Error checking claimables from pool directly: ${error.message}`);
+              // Get token info for display
+              const token0 = await pool.token0();
+              const token1 = await pool.token1();
+              
+              // Find token symbols
+              const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
+              const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
+              
+              console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
+                token0Info ? 
+                  ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
+                  ethers.utils.formatEther(claimable0)
+              }`);
+              
+              console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
+                token1Info ? 
+                  ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
+                  ethers.utils.formatEther(claimable1)
+              }`);
+              
+              if (claimable0.gt(0) || claimable1.gt(0)) {
+                feesFound = true;
               }
-            } else {
-              console.log("No LP balance in volatile pool");
+            } catch (error) {
+              console.log(`Error checking claimables from pool directly: ${error.message}`);
             }
           } catch (error) {
             console.log(`Error checking LP balance for volatile pool: ${error.message}`);
@@ -260,6 +261,9 @@ describe("UserLPManager Fee Claiming Tests", function() {
   it("should be able to claim fees if available", async function() {
     console.log("\n=== Attempting to Claim Fees ===");
     
+    // Get dynamic gas options
+    const gasOptions = await getGasOptions();
+
     let claimAttempted = false;
     
     for (const pair of tokenPairs) {
@@ -270,64 +274,93 @@ describe("UserLPManager Fee Claiming Tests", function() {
         // Check stable pool if it exists
         if (stablePool !== ethers.constants.AddressZero) {
           try {
-            // First check LP balance directly
+            // Check LP balance directly
             const lpToken = await ethers.getContractAt("IERC20", stablePool);
             const lpBalance = await lpToken.balanceOf(managerAddress);
+            console.log(`\nStable LP Balance for ${pair.name}: ${ethers.utils.formatEther(lpBalance)}`);
             
-            if (lpBalance.gt(0)) {
-              // Get claimable fees directly from the pool
-              const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", stablePool);
-              const claimable0 = await pool.claimable0(managerAddress);
-              const claimable1 = await pool.claimable1(managerAddress);
+            // Get claimable fees directly from the pool
+            const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", stablePool);
+            const claimable0 = await pool.claimable0(managerAddress);
+            const claimable1 = await pool.claimable1(managerAddress);
+            
+            // Try to claim if there are any fees available, no matter how small
+            if (claimable0.gt(0) || claimable1.gt(0)) {
+              console.log(`\nAttempting to claim fees for ${pair.name} (Stable)`);
+              console.log(`Claimable amounts: ${ethers.utils.formatEther(claimable0)} / ${ethers.utils.formatEther(claimable1)}`);
+              claimAttempted = true;
               
-              // Try to claim if there are any fees available, no matter how small
-              if (claimable0.gt(0) || claimable1.gt(0)) {
-                console.log(`\nAttempting to claim fees for ${pair.name} (Stable)`);
-                console.log(`Claimable amounts: ${ethers.utils.formatEther(claimable0)} / ${ethers.utils.formatEther(claimable1)}`);
-                claimAttempted = true;
+              try {
+                // Get token info for display
+                const token0 = await pool.token0();
+                const token1 = await pool.token1();
                 
-                try {
-                  // Get token info for display
-                  const token0 = await pool.token0();
-                  const token1 = await pool.token1();
-                  
-                  const token0Contract = await ethers.getContractAt("IERC20", token0);
-                  const token1Contract = await ethers.getContractAt("IERC20", token1);
-                  
-                  const balanceBefore0 = await token0Contract.balanceOf(managerAddress);
-                  const balanceBefore1 = await token1Contract.balanceOf(managerAddress);
-                  
-                  console.log(`Balance before: ${ethers.utils.formatEther(balanceBefore0)} / ${ethers.utils.formatEther(balanceBefore1)}`);
-                  
-                  // Claim fees with manual gas limit to ensure transaction has enough gas
-                  const tx = await manager.claimFees(pair.tokenA, pair.tokenB, true, {
-                    gasLimit: 500000 // Set manual gas limit
-                  });
-                  console.log(`Transaction submitted: ${tx.hash}`);
-                  
-                  // Wait for confirmation
-                  const receipt = await tx.wait();
-                  console.log(`Transaction confirmed: ${receipt.transactionHash}`);
-                  
-                  // Check token balances after
-                  const balanceAfter0 = await token0Contract.balanceOf(managerAddress);
-                  const balanceAfter1 = await token1Contract.balanceOf(managerAddress);
-                  
-                  console.log(`Balance after: ${ethers.utils.formatEther(balanceAfter0)} / ${ethers.utils.formatEther(balanceAfter1)}`);
-                  console.log(`Claimed: ${ethers.utils.formatEther(balanceAfter0.sub(balanceBefore0))} / ${ethers.utils.formatEther(balanceAfter1.sub(balanceBefore1))}`);
-                  
-                  // Find FeesClaimed event
-                  const feeClaimedEvent = receipt.events.find(e => e.event === 'FeesClaimed');
-                  if (feeClaimedEvent) {
-                    const [pool, amount0, amount1] = feeClaimedEvent.args;
-                    console.log(`Event data - Pool: ${pool}, Amount0: ${ethers.utils.formatEther(amount0)}, Amount1: ${ethers.utils.formatEther(amount1)}`);
+                const token0Contract = await ethers.getContractAt("IERC20", token0);
+                const token1Contract = await ethers.getContractAt("IERC20", token1);
+                
+                const balanceBefore0 = await token0Contract.balanceOf(managerAddress);
+                const balanceBefore1 = await token1Contract.balanceOf(managerAddress);
+                
+                console.log(`Balance before: ${ethers.utils.formatEther(balanceBefore0)} / ${ethers.utils.formatEther(balanceBefore1)}`);
+                
+                // Claim fees with manual gas limit to ensure transaction has enough gas
+                const tx = await manager.claimFees(pair.tokenA, pair.tokenB, true, gasOptions);
+                console.log(`Transaction submitted: ${tx.hash}`);
+                
+                // Wait for confirmation
+                const receipt = await tx.wait();
+                console.log(`Transaction confirmed: ${receipt.transactionHash}`);
+                
+                // Look at transaction events to understand what happened
+                for (const event of receipt.events) {
+                  if (event.event === 'DebugLog') {
+                    const [message, data] = event.args;
+                    console.log(`Debug: ${message}`);
+                    try {
+                      // For numeric data values
+                      if (message.includes("balance") || message.includes("fees") || message.includes("received") || message.includes("amount")) {
+                        try {
+                          // Try to parse as BigNumber
+                          const numericValue = ethers.BigNumber.from(data);
+                          console.log(`  Numeric data: ${ethers.utils.formatEther(numericValue)}`);
+                        } catch {
+                          // Try to decode as bytes string
+                          try {
+                            const decoded = ethers.utils.defaultAbiCoder.decode(['bytes'], data)[0];
+                            console.log(`  Data: ${ethers.utils.hexDataSlice(decoded, 0)}`);
+                          } catch (e) {
+                            console.log(`  Raw data: ${data}`);
+                          }
+                        }
+                      } else {
+                        // Standard attempt at decoding bytes
+                        const decoded = ethers.utils.defaultAbiCoder.decode(['bytes'], data)[0];
+                        console.log(`  Data: ${ethers.utils.toUtf8String(decoded)}`);
+                      }
+                    } catch (e) {
+                      console.log(`  Raw data: ${data}`);
+                    }
                   }
-                } catch (error) {
-                  console.log(`Fee claim failed: ${error.message}`);
                 }
+                
+                // Check token balances after
+                const balanceAfter0 = await token0Contract.balanceOf(managerAddress);
+                const balanceAfter1 = await token1Contract.balanceOf(managerAddress);
+                
+                console.log(`Balance after: ${ethers.utils.formatEther(balanceAfter0)} / ${ethers.utils.formatEther(balanceAfter1)}`);
+                console.log(`Claimed: ${ethers.utils.formatEther(balanceAfter0.sub(balanceBefore0))} / ${ethers.utils.formatEther(balanceAfter1.sub(balanceBefore1))}`);
+                
+                // Find FeesClaimed event
+                const feeClaimedEvent = receipt.events.find(e => e.event === 'FeesClaimed');
+                if (feeClaimedEvent) {
+                  const [pool, amount0, amount1] = feeClaimedEvent.args;
+                  console.log(`Event data - Pool: ${pool}, Amount0: ${ethers.utils.formatEther(amount0)}, Amount1: ${ethers.utils.formatEther(amount1)}`);
+                }
+              } catch (error) {
+                console.log(`Fee claim failed: ${error.message}`);
               }
             } else {
-              console.log(`No LP tokens for ${pair.name} (Stable)`);
+              console.log(`No claimable fees for ${pair.name} (Stable)`);
             }
           } catch (error) {
             console.log(`Error checking claimable fees for stable pool: ${error.message}`);
@@ -337,64 +370,93 @@ describe("UserLPManager Fee Claiming Tests", function() {
         // Check volatile pool if it exists
         if (volatilePool !== ethers.constants.AddressZero) {
           try {
-            // First check LP balance directly
+            // Check LP balance directly
             const lpToken = await ethers.getContractAt("IERC20", volatilePool);
             const lpBalance = await lpToken.balanceOf(managerAddress);
+            console.log(`\nVolatile LP Balance for ${pair.name}: ${ethers.utils.formatEther(lpBalance)}`);
             
-            if (lpBalance.gt(0)) {
-              // Get claimable fees directly from the pool
-              const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
-              const claimable0 = await pool.claimable0(managerAddress);
-              const claimable1 = await pool.claimable1(managerAddress);
+            // Get claimable fees directly from the pool
+            const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
+            const claimable0 = await pool.claimable0(managerAddress);
+            const claimable1 = await pool.claimable1(managerAddress);
+            
+            // Try to claim if there are any fees available, no matter how small
+            if (claimable0.gt(0) || claimable1.gt(0)) {
+              console.log(`\nAttempting to claim fees for ${pair.name} (Volatile)`);
+              console.log(`Claimable amounts: ${ethers.utils.formatEther(claimable0)} / ${ethers.utils.formatEther(claimable1)}`);
+              claimAttempted = true;
               
-              // Try to claim if there are any fees available, no matter how small
-              if (claimable0.gt(0) || claimable1.gt(0)) {
-                console.log(`\nAttempting to claim fees for ${pair.name} (Volatile)`);
-                console.log(`Claimable amounts: ${ethers.utils.formatEther(claimable0)} / ${ethers.utils.formatEther(claimable1)}`);
-                claimAttempted = true;
+              try {
+                // Get token info for display
+                const token0 = await pool.token0();
+                const token1 = await pool.token1();
                 
-                try {
-                  // Get token info for display
-                  const token0 = await pool.token0();
-                  const token1 = await pool.token1();
-                  
-                  const token0Contract = await ethers.getContractAt("IERC20", token0);
-                  const token1Contract = await ethers.getContractAt("IERC20", token1);
-                  
-                  const balanceBefore0 = await token0Contract.balanceOf(managerAddress);
-                  const balanceBefore1 = await token1Contract.balanceOf(managerAddress);
-                  
-                  console.log(`Balance before: ${ethers.utils.formatEther(balanceBefore0)} / ${ethers.utils.formatEther(balanceBefore1)}`);
-                  
-                  // Claim fees with manual gas limit to ensure transaction has enough gas
-                  const tx = await manager.claimFees(pair.tokenA, pair.tokenB, false, {
-                    gasLimit: 500000 // Set manual gas limit
-                  });
-                  console.log(`Transaction submitted: ${tx.hash}`);
-                  
-                  // Wait for confirmation
-                  const receipt = await tx.wait();
-                  console.log(`Transaction confirmed: ${receipt.transactionHash}`);
-                  
-                  // Check token balances after
-                  const balanceAfter0 = await token0Contract.balanceOf(managerAddress);
-                  const balanceAfter1 = await token1Contract.balanceOf(managerAddress);
-                  
-                  console.log(`Balance after: ${ethers.utils.formatEther(balanceAfter0)} / ${ethers.utils.formatEther(balanceAfter1)}`);
-                  console.log(`Claimed: ${ethers.utils.formatEther(balanceAfter0.sub(balanceBefore0))} / ${ethers.utils.formatEther(balanceAfter1.sub(balanceBefore1))}`);
-                  
-                  // Find FeesClaimed event
-                  const feeClaimedEvent = receipt.events.find(e => e.event === 'FeesClaimed');
-                  if (feeClaimedEvent) {
-                    const [pool, amount0, amount1] = feeClaimedEvent.args;
-                    console.log(`Event data - Pool: ${pool}, Amount0: ${ethers.utils.formatEther(amount0)}, Amount1: ${ethers.utils.formatEther(amount1)}`);
+                const token0Contract = await ethers.getContractAt("IERC20", token0);
+                const token1Contract = await ethers.getContractAt("IERC20", token1);
+                
+                const balanceBefore0 = await token0Contract.balanceOf(managerAddress);
+                const balanceBefore1 = await token1Contract.balanceOf(managerAddress);
+                
+                console.log(`Balance before: ${ethers.utils.formatEther(balanceBefore0)} / ${ethers.utils.formatEther(balanceBefore1)}`);
+                
+                // Claim fees with manual gas limit to ensure transaction has enough gas
+                const tx = await manager.claimFees(pair.tokenA, pair.tokenB, false, gasOptions);
+                console.log(`Transaction submitted: ${tx.hash}`);
+                
+                // Wait for confirmation
+                const receipt = await tx.wait();
+                console.log(`Transaction confirmed: ${receipt.transactionHash}`);
+                
+                // Look at transaction events to understand what happened
+                for (const event of receipt.events) {
+                  if (event.event === 'DebugLog') {
+                    const [message, data] = event.args;
+                    console.log(`Debug: ${message}`);
+                    try {
+                      // For numeric data values
+                      if (message.includes("balance") || message.includes("fees") || message.includes("received") || message.includes("amount")) {
+                        try {
+                          // Try to parse as BigNumber
+                          const numericValue = ethers.BigNumber.from(data);
+                          console.log(`  Numeric data: ${ethers.utils.formatEther(numericValue)}`);
+                        } catch {
+                          // Try to decode as bytes string
+                          try {
+                            const decoded = ethers.utils.defaultAbiCoder.decode(['bytes'], data)[0];
+                            console.log(`  Data: ${ethers.utils.hexDataSlice(decoded, 0)}`);
+                          } catch (e) {
+                            console.log(`  Raw data: ${data}`);
+                          }
+                        }
+                      } else {
+                        // Standard attempt at decoding bytes
+                        const decoded = ethers.utils.defaultAbiCoder.decode(['bytes'], data)[0];
+                        console.log(`  Data: ${ethers.utils.toUtf8String(decoded)}`);
+                      }
+                    } catch (e) {
+                      console.log(`  Raw data: ${data}`);
+                    }
                   }
-                } catch (error) {
-                  console.log(`Fee claim failed: ${error.message}`);
                 }
+                
+                // Check token balances after
+                const balanceAfter0 = await token0Contract.balanceOf(managerAddress);
+                const balanceAfter1 = await token1Contract.balanceOf(managerAddress);
+                
+                console.log(`Balance after: ${ethers.utils.formatEther(balanceAfter0)} / ${ethers.utils.formatEther(balanceAfter1)}`);
+                console.log(`Claimed: ${ethers.utils.formatEther(balanceAfter0.sub(balanceBefore0))} / ${ethers.utils.formatEther(balanceAfter1.sub(balanceBefore1))}`);
+                
+                // Find FeesClaimed event
+                const feeClaimedEvent = receipt.events.find(e => e.event === 'FeesClaimed');
+                if (feeClaimedEvent) {
+                  const [pool, amount0, amount1] = feeClaimedEvent.args;
+                  console.log(`Event data - Pool: ${pool}, Amount0: ${ethers.utils.formatEther(amount0)}, Amount1: ${ethers.utils.formatEther(amount1)}`);
+                }
+              } catch (error) {
+                console.log(`Fee claim failed: ${error.message}`);
               }
             } else {
-              console.log(`No LP tokens for ${pair.name} (Volatile)`);
+              console.log(`No claimable fees for ${pair.name} (Volatile)`);
             }
           } catch (error) {
             console.log(`Error checking claimable fees for volatile pool: ${error.message}`);
@@ -428,43 +490,38 @@ describe("UserLPManager Fee Claiming Tests", function() {
           console.log(`Stable pool: ${stablePool}`);
           
           try {
-            // First check LP balance directly to avoid unnecessary contract calls
+            // Check LP balance directly
             const lpToken = await ethers.getContractAt("IERC20", stablePool);
             const lpBalance = await lpToken.balanceOf(managerAddress);
+            console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
             
-            if (lpBalance.gt(0)) {
-              console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+            // Get claimable fees directly from the pool
+            try {
+              const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", stablePool);
+              const claimable0 = await pool.claimable0(managerAddress);
+              const claimable1 = await pool.claimable1(managerAddress);
               
-              // Get claimable fees directly from the pool
-              try {
-                const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", stablePool);
-                const claimable0 = await pool.claimable0(managerAddress);
-                const claimable1 = await pool.claimable1(managerAddress);
-                
-                // Get token info for display
-                const token0 = await pool.token0();
-                const token1 = await pool.token1();
-                
-                // Find token symbols
-                const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
-                const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
-                
-                console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
-                  token0Info ? 
-                    ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
-                    ethers.utils.formatEther(claimable0)
-                }`);
-                
-                console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
-                  token1Info ? 
-                    ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
-                    ethers.utils.formatEther(claimable1)
-                }`);
-              } catch (error) {
-                console.log(`Error checking claimables from pool directly: ${error.message}`);
-              }
-            } else {
-              console.log("No LP balance in stable pool");
+              // Get token info for display
+              const token0 = await pool.token0();
+              const token1 = await pool.token1();
+              
+              // Find token symbols
+              const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
+              const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
+              
+              console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
+                token0Info ? 
+                  ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
+                  ethers.utils.formatEther(claimable0)
+              }`);
+              
+              console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
+                token1Info ? 
+                  ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
+                  ethers.utils.formatEther(claimable1)
+              }`);
+            } catch (error) {
+              console.log(`Error checking claimables from pool directly: ${error.message}`);
             }
           } catch (error) {
             console.log(`Error checking LP balance for stable pool: ${error.message}`);
@@ -476,43 +533,38 @@ describe("UserLPManager Fee Claiming Tests", function() {
           console.log(`Volatile pool: ${volatilePool}`);
           
           try {
-            // First check LP balance directly to avoid unnecessary contract calls
+            // Check LP balance directly
             const lpToken = await ethers.getContractAt("IERC20", volatilePool);
             const lpBalance = await lpToken.balanceOf(managerAddress);
+            console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
             
-            if (lpBalance.gt(0)) {
-              console.log(`LP Balance: ${ethers.utils.formatEther(lpBalance)}`);
+            // Get claimable fees directly from the pool
+            try {
+              const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
+              const claimable0 = await pool.claimable0(managerAddress);
+              const claimable1 = await pool.claimable1(managerAddress);
               
-              // Get claimable fees directly from the pool
-              try {
-                const pool = await ethers.getContractAt("contracts/ManageLP.sol:IAerodromePair", volatilePool);
-                const claimable0 = await pool.claimable0(managerAddress);
-                const claimable1 = await pool.claimable1(managerAddress);
-                
-                // Get token info for display
-                const token0 = await pool.token0();
-                const token1 = await pool.token1();
-                
-                // Find token symbols
-                const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
-                const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
-                
-                console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
-                  token0Info ? 
-                    ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
-                    ethers.utils.formatEther(claimable0)
-                }`);
-                
-                console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
-                  token1Info ? 
-                    ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
-                    ethers.utils.formatEther(claimable1)
-                }`);
-              } catch (error) {
-                console.log(`Error checking claimables from pool directly: ${error.message}`);
-              }
-            } else {
-              console.log("No LP balance in volatile pool");
+              // Get token info for display
+              const token0 = await pool.token0();
+              const token1 = await pool.token1();
+              
+              // Find token symbols
+              const token0Info = tokenContracts.find(t => t.address.toLowerCase() === token0.toLowerCase());
+              const token1Info = tokenContracts.find(t => t.address.toLowerCase() === token1.toLowerCase());
+              
+              console.log(`Claimable ${token0Info ? token0Info.symbol : token0}: ${
+                token0Info ? 
+                  ethers.utils.formatUnits(claimable0, token0Info.decimals) : 
+                  ethers.utils.formatEther(claimable0)
+              }`);
+              
+              console.log(`Claimable ${token1Info ? token1Info.symbol : token1}: ${
+                token1Info ? 
+                  ethers.utils.formatUnits(claimable1, token1Info.decimals) : 
+                  ethers.utils.formatEther(claimable1)
+              }`);
+            } catch (error) {
+              console.log(`Error checking claimables from pool directly: ${error.message}`);
             }
           } catch (error) {
             console.log(`Error checking LP balance for volatile pool: ${error.message}`);

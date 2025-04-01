@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { getGasOptions } = require("../utils/helpers");
 const dotenv = require("dotenv");
 const path = require("path");
 const fs = require("fs");
@@ -8,7 +9,7 @@ const fs = require("fs");
 dotenv.config({ path: "deployments/base.env" });
 
 // Use environment variables with fallbacks
-const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xF5488216EC9aAC50CD739294C9961884190caBe3";
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY;
 const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
 const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
@@ -47,7 +48,16 @@ describe("UserLPManager Staking LP Test", function() {
       // Check if manager exists, create one if it doesn't
       if (managerAddress === ethers.constants.AddressZero) {
         console.log("No manager found for this wallet. Creating a new manager...");
-        const createTx = await factory.createManager();
+        
+    // Get dynamic gas options
+    const gasOptions = await getGasOptions();
+    console.log("Using dynamic gas options:", 
+      gasOptions.gasPrice ? 
+        `Gas Price: ${ethers.utils.formatUnits(gasOptions.gasPrice, 'gwei')} gwei` : 
+        `Max Fee: ${ethers.utils.formatUnits(gasOptions.maxFeePerGas, 'gwei')} gwei, Priority Fee: ${ethers.utils.formatUnits(gasOptions.maxPriorityFeePerGas, 'gwei')} gwei`
+    );
+    
+    const createTx = await factory.createManager(gasOptions);
         const createReceipt = await createTx.wait();
         
         // Get the manager address from event

@@ -1,6 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { getNetworkConfig } = require("../utils/helpers");
+const { getNetworkConfig, getGasOptions } = require("../utils/helpers");
 const { depositTokens } = require("../utils/deposit-tokens");
 const { withdrawTokens, withdrawETH } = require("../utils/withdraw-tokens");
 const { addLiquidity } = require("../utils/add-liquidity");
@@ -18,13 +18,16 @@ const fs = require("fs");
 dotenv.config({ path: "deployments/base.env" });
 
 // Use environment variables with fallbacks
-const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY || "0xF5488216EC9aAC50CD739294C9961884190caBe3";
+const LP_MANAGER_FACTORY = process.env.LP_MANAGER_FACTORY;
 const USDC = process.env.USDC || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const WETH = process.env.WETH || "0x4200000000000000000000000000000000000006";
 const AERO = process.env.AERO || "0x940181a94A35A4569E4529A3CDfB74e38FD98631";
 const VIRTUAL = process.env.VIRTUAL || "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b";
 const AERODROME_ROUTER = process.env.AERODROME_ROUTER || "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43";
 const AERODROME_FACTORY = process.env.AERODROME_FACTORY || "0x420DD381b31aEf6683db6B902084cB0FFECe40Da";
+
+// Get dynamic gas options for unstaking
+const gasOptions = await getGasOptions();
 
 describe("UserLPManager Lifecycle Tests", function() {
   // Set timeout for long-running tests
@@ -51,6 +54,9 @@ describe("UserLPManager Lifecycle Tests", function() {
       console.log("Running lifecycle tests with account:", deployer.address);
       console.log(`Using factory: ${LP_MANAGER_FACTORY}`);
       
+      // Get dynamic gas options
+      const gasOptions = await getGasOptions();
+      
       // Get the factory contract instance
       factory = await ethers.getContractAt("UserLPManagerFactory", LP_MANAGER_FACTORY);
       
@@ -60,7 +66,7 @@ describe("UserLPManager Lifecycle Tests", function() {
       // Check if manager exists, create one if it doesn't
       if (managerAddress === ethers.constants.AddressZero) {
         console.log("No manager found for this wallet. Creating a new manager...");
-        const createTx = await factory.createManager();
+        const createTx = await factory.createManager({ ...gasOptions });
         const createReceipt = await createTx.wait();
         
         // Get the manager address from event
@@ -811,11 +817,9 @@ describe("UserLPManager Lifecycle Tests", function() {
           // Continue with unstaking even if rewards claim failed
         }
       }
-      
+            
       // Now try to unstake with gas settings
-      const unstakeTx = await manager.unstakeLPTokens(lpToken1, stakedBalance, {
-        gasLimit: 300000,  // Set a higher gas limit
-      });
+      const unstakeTx = await manager.unstakeLPTokens(lpToken1, stakedBalance, gasOptions);
       
       console.log(`Transaction hash: ${unstakeTx.hash}`);
       const receipt = await unstakeTx.wait();
@@ -828,6 +832,10 @@ describe("UserLPManager Lifecycle Tests", function() {
       
       console.log(`LP balance after unstaking: ${ethers.utils.formatEther(lpBalance)}`);
       expect(lpBalance).to.be.equal(stakedBalance);
+      
+      // Unstake any remaining dust (with 0 amount to unstake all)
+      await manager.unstakeLPTokens(lpToken1, 0, gasOptions);
+      console.log("Unstaked remaining dust");
     } catch (error) {
       console.log(`Error unstaking LP tokens: ${error.message}`);
       
@@ -840,7 +848,7 @@ describe("UserLPManager Lifecycle Tests", function() {
         
         // Try unstaking with zero amount which might revert staked tokens
         console.log("Trying to unstake with 0 amount (to revert all tokens)...");
-        await manager.unstakeLPTokens(lpToken1, 0, { gasLimit: 500000 });
+        await manager.unstakeLPTokens(lpToken1, 0, gasOptions);
       } catch (diagError) {
         console.log(`Diagnostic error: ${diagError.message}`);
       }

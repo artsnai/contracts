@@ -1,5 +1,5 @@
 const { ethers } = require("hardhat");
-const { getNetworkConfig } = require("./helpers");
+const { getNetworkConfig , getGasOptions} = require("./helpers");
 const { getOrCreateManager } = require("./create-manager");
 
 /**
@@ -11,13 +11,17 @@ const { getOrCreateManager } = require("./create-manager");
  * @param {number} options.slippagePct Slippage percentage for minimum amounts (optional - defaults to 2%)
  * @param {boolean} options.log Whether to log information (optional - defaults to true)
  * @returns {Promise<Object>} Object containing success, transaction hash, token details, and amounts
+ * @param {Object} params.gasOptions - Optional gas price options for the transaction
  */
 async function removeLiquidity({
+
   managerAddress,
   lpToken,
   amount,
   slippagePct = 2,
   log = true
+,
+  gasOptions
 }) {
   try {
     // Get signer
