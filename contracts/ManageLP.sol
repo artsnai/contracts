@@ -55,7 +55,7 @@ interface IAerodromeRouter {
 }
 
 interface IAerodromeFactory {
-    function getPair(address tokenA, address tokenB, bool stable) external view returns (address pair);
+    function getPool(address tokenA, address tokenB, bool stable) external view returns (address pair);
 }
 
 // Interface for the Factory contract
@@ -653,19 +653,7 @@ contract UserLPManager is Ownable {
                     claimed = true;
                 }
             } catch {
-                // Failed, try next method
-            }
-        }
-        
-        // Method 3: Try raw low-level call as last resort
-        if (!claimed) {
-            // Direct low-level call to the getReward function
-            (bool success, ) = gauge.call(abi.encodeWithSignature("getReward()"));
-            claimed = success;
-            
-            if (!success) {
-                (bool success2, ) = gauge.call(abi.encodeWithSignature("claim_rewards()"));
-                claimed = success2;
+                emit DebugLog("Failed to claim rewards", "");
             }
         }
         
@@ -761,7 +749,7 @@ contract UserLPManager is Ownable {
         require(aerodromeFactory != address(0), "Aerodrome factory not set");
         
         // Get the pool address
-        address pool = IAerodromeFactory(aerodromeFactory).getPair(tokenA, tokenB, stable);
+        address pool = IAerodromeFactory(aerodromeFactory).getPool(tokenA, tokenB, stable);
         require(pool != address(0), "Pool not found");
         
         // Just call claimFees directly
@@ -773,7 +761,7 @@ contract UserLPManager is Ownable {
         require(aerodromeFactory != address(0), "Aerodrome factory not set");
         
         // Get the pool address
-        address pool = IAerodromeFactory(aerodromeFactory).getPair(tokenA, tokenB, stable);
+        address pool = IAerodromeFactory(aerodromeFactory).getPool(tokenA, tokenB, stable);
         if (pool == address(0)) {
             return (0, 0, 0); // Return zeros if pool doesn't exist
         }
