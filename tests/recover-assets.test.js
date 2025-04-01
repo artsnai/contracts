@@ -39,20 +39,47 @@ describe("UserLPManager Asset Recovery", function() {
     
     // Connect to the factory
     console.log(`Using factory: ${LP_MANAGER_FACTORY}`);
-    factory = await ethers.getContractAt("contracts/ManageLP.sol:IUserLPManagerFactory", LP_MANAGER_FACTORY);
+    factory = await ethers.getContractAt("UserLPManagerFactory", LP_MANAGER_FACTORY);
 
     // Try to find an existing manager for this account
     try {
       managerAddress = await factory.getUserManager(deployer.address);
-      console.log(`Found existing manager at: ${managerAddress}`);
+      
+      // Check if manager exists, create one if it doesn't
+      if (managerAddress === ethers.constants.AddressZero) {
+        console.log("No manager found for this wallet. Creating a new manager...");
+        const createTx = await factory.createManager();
+        const createReceipt = await createTx.wait();
+        
+        // Get the manager address from event
+        const event = createReceipt.events.find(e => e.event === 'ManagerCreated');
+        managerAddress = event.args.manager;
+        console.log("UserLPManager created at:", managerAddress);
+      } else {
+        console.log("Found existing manager at:", managerAddress);
+      }
+      
+      // Get manager contract instance
+      manager = await ethers.getContractAt("UserLPManager", managerAddress);
+      
+      // Set Aerodrome router and factory if not set
+      const currentRouter = await manager.aerodromeRouter();
+      const currentFactory = await manager.aerodromeFactory();
+      
+      if (currentRouter === ethers.constants.AddressZero) {
+        console.log("Setting Aerodrome router...");
+        await manager.setAerodromeRouter(AERODROME_ROUTER);
+      }
+      
+      if (currentFactory === ethers.constants.AddressZero) {
+        console.log("Setting Aerodrome factory...");
+        await manager.setAerodromeFactory(AERODROME_FACTORY);
+      }
     } catch (error) {
-      console.log("Could not find existing manager, test will be skipped");
+      console.log("Error in setup:", error.message);
       this.skip();
       return;
     }
-    
-    // Get the manager contract instance
-    manager = await ethers.getContractAt("UserLPManager", managerAddress);
     
     // Verify that the deployer is the owner
     const owner = await manager.owner();
