@@ -33,7 +33,7 @@ module.exports = {
     },
     base: {
       url: process.env.BASE_MAINNET_RPC_URL || "https://mainnet.base.org",
-      accounts: [process.env.PRIVATE_KEY],
+      accounts: [process.env.PRIVATE_KEY, process.env.TRACKING_WALLET_PRIVATE_KEY],
       chainId: 8453,
       gasPrice: 1000000000, // 1 gwei
       timeout: 300000 // 5 minutes
